@@ -102,3 +102,50 @@ knowledgeRoutes.get("/objects", async (c) => {
 
   return ok(c, objects);
 });
+
+knowledgeRoutes.get("/graph", async (c) => {
+  const user = c.get("user")!;
+
+  const [objects, edges, rules] = await Promise.all([
+    prisma.knowledgeObject.findMany({
+      where: { source: { organizationId: user.organizationId } },
+      take: 100,
+      include: { source: { select: { title: true } } },
+    }),
+    prisma.knowledgeGraphEdge.findMany({
+      where: { organizationId: user.organizationId },
+      take: 200,
+    }),
+    prisma.rule.findMany({
+      where: { policy: { organizationId: user.organizationId } },
+      select: { id: true, title: true, status: true },
+      take: 50,
+    }),
+  ]);
+
+  const nodes = [
+    ...objects.map((o) => ({
+      id: `obj-${o.id}`,
+      type: "knowledge_object",
+      label: o.content.slice(0, 60),
+      objectType: o.type,
+      confidence: o.confidence,
+      source: o.source.title,
+    })),
+    ...rules.map((r) => ({
+      id: `rule-${r.id}`,
+      type: "rule",
+      label: r.title,
+      status: r.status,
+    })),
+  ];
+
+  const graphEdges = edges.map((e) => ({
+    id: e.id,
+    source: e.fromObjectId ? `obj-${e.fromObjectId}` : e.fromRuleId ? `rule-${e.fromRuleId}` : "",
+    target: e.toObjectId ? `obj-${e.toObjectId}` : e.toRuleId ? `rule-${e.toRuleId}` : "",
+    relation: e.relation,
+  }));
+
+  return ok(c, { nodes, edges: graphEdges });
+});

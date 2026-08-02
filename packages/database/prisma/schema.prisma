@@ -22,6 +22,12 @@ model Organization {
   knowledgeSources KnowledgeSource[]
   workflows        Workflow[]
   auditEvents      AuditEvent[]
+  graphEdges       KnowledgeGraphEdge[]
+  composerSessions ComposerSession[]
+  exportRecords    ExportRecord[]
+  flightRecords    FlightRecord[]
+  settings         OrganizationSettings?
+  policyVersions   PolicyVersion[]
 
   @@map("organizations")
 }
@@ -44,6 +50,9 @@ model User {
   approvals          Approval[]
   auditEvents        AuditEvent[]
   sessions           Session[]
+  notifications      Notification[]
+  composerSessions   ComposerSession[]
+  exportRecords      ExportRecord[]
 
   @@index([organizationId])
   @@map("users")
@@ -86,6 +95,7 @@ model Folder {
   permissions  FolderPermission[]
   policies     Policy[]
   sources      KnowledgeSource[]
+  composerSessions ComposerSession[]
 
   @@index([organizationId])
   @@index([parentId])
@@ -132,6 +142,8 @@ model Policy {
   rules        Rule[]
   approvals    Approval[]
   comments     Comment[]
+  versions     PolicyVersion[]
+  composerSessions ComposerSession[]
 
   @@index([organizationId])
   @@index([folderId])
@@ -163,6 +175,9 @@ model Rule {
   createdBy User          @relation("RuleCreator", fields: [createdById], references: [id])
   versions  RuleVersion[]
   comments  Comment[]
+  exports   ExportRecord[]
+  graphEdgesFrom KnowledgeGraphEdge[] @relation("GraphFromRule")
+  graphEdgesTo   KnowledgeGraphEdge[] @relation("GraphToRule")
 
   @@index([policyId])
   @@index([status])
@@ -199,6 +214,7 @@ model KnowledgeSource {
   mimeType       String              @map("mime_type")
   fileSize       Int                 @map("file_size")
   storagePath    String              @map("storage_path")
+  extractedText  String?             @map("extracted_text") @db.Text
   status         KnowledgeSourceStatus @default(PENDING)
   folderId       String              @map("folder_id")
   organizationId String              @map("organization_id")
@@ -231,6 +247,8 @@ model KnowledgeObject {
   createdAt  DateTime @default(now()) @map("created_at")
 
   source KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  edgesFrom KnowledgeGraphEdge[] @relation("GraphFromObject")
+  edgesTo   KnowledgeGraphEdge[] @relation("GraphToObject")
 
   @@index([sourceId])
   @@map("knowledge_objects")
@@ -339,21 +357,36 @@ enum ApprovalStatus {
 }
 
 model Comment {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   content   String
-  authorId  String   @map("author_id")
-  policyId  String?  @map("policy_id")
-  ruleId    String?  @map("rule_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  type      CommentType @default(SUGGESTION)
+  mentions  String[]    @default([])
+  resolved  Boolean     @default(false)
+  parentId  String?     @map("parent_id")
+  authorId  String      @map("author_id")
+  policyId  String?     @map("policy_id")
+  ruleId    String?     @map("rule_id")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
 
   author User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
   policy Policy? @relation(fields: [policyId], references: [id], onDelete: Cascade)
   rule   Rule?   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  parent Comment?  @relation("CommentThread", fields: [parentId], references: [id])
+  replies Comment[] @relation("CommentThread")
 
   @@index([policyId])
   @@index([ruleId])
   @@map("comments")
+}
+
+enum CommentType {
+  QUESTION
+  SUGGESTION
+  ISSUE
+  REQUEST
+  APPROVAL_NOTE
+  EVIDENCE
 }
 
 model AuditEvent {
@@ -374,4 +407,170 @@ model AuditEvent {
   @@index([resourceType, resourceId])
   @@index([correlationId])
   @@map("audit_events")
+}
+
+// ─── Knowledge Graph ────────────────────────────────────────────────────────
+
+model KnowledgeGraphEdge {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  fromObjectId   String?  @map("from_object_id")
+  fromRuleId     String?  @map("from_rule_id")
+  toObjectId     String?  @map("to_object_id")
+  toRuleId       String?  @map("to_rule_id")
+  relation       String
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fromObject   KnowledgeObject? @relation("GraphFromObject", fields: [fromObjectId], references: [id], onDelete: Cascade)
+  toObject     KnowledgeObject? @relation("GraphToObject", fields: [toObjectId], references: [id], onDelete: Cascade)
+  fromRule     Rule?            @relation("GraphFromRule", fields: [fromRuleId], references: [id], onDelete: Cascade)
+  toRule       Rule?            @relation("GraphToRule", fields: [toRuleId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("knowledge_graph_edges")
+}
+
+// ─── Policy Versions ────────────────────────────────────────────────────────
+
+model PolicyVersion {
+  id             String       @id @default(cuid())
+  policyId       String       @map("policy_id")
+  organizationId String       @map("organization_id")
+  version        Int
+  title          String
+  description    String?
+  status         PolicyStatus
+  snapshot       Json
+  changeNote     String?      @map("change_note")
+  createdById    String       @map("created_by_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  policy       Policy       @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, version])
+  @@index([organizationId])
+  @@map("policy_versions")
+}
+
+// ─── AI Composer ──────────────────────────────────────────────────────────────
+
+model ComposerSession {
+  id             String         @id @default(cuid())
+  organizationId String         @map("organization_id")
+  userId         String         @map("user_id")
+  folderId       String         @map("folder_id")
+  policyId       String?        @map("policy_id")
+  title          String?
+  stage          ComposerStage  @default(UPLOAD)
+  sourceIds      String[]       @default([])
+  clarifications Json           @default("[]")
+  generatedRules Json           @default("[]")
+  metadata       Json           @default("{}")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder       Folder       @relation(fields: [folderId], references: [id])
+  policy       Policy?      @relation(fields: [policyId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+  @@map("composer_sessions")
+}
+
+enum ComposerStage {
+  UPLOAD
+  EXTRACT
+  CLARIFY
+  GENERATE
+  REVIEW
+  COMPLETE
+}
+
+// ─── Exports ──────────────────────────────────────────────────────────────────
+
+model ExportRecord {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  ruleId         String   @map("rule_id")
+  userId         String   @map("user_id")
+  format         String
+  artifact       String   @db.Text
+  validation     Json     @default("{}")
+  correlationId  String?  @map("correlation_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rule         Rule         @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([ruleId])
+  @@map("export_records")
+}
+
+// ─── Flight Recorder ──────────────────────────────────────────────────────────
+
+model FlightRecord {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  workflowId     String?  @map("workflow_id")
+  correlationId  String   @map("correlation_id")
+  stage          String
+  agentType      String?  @map("agent_type")
+  model          String?
+  promptVersion  String?  @map("prompt_version")
+  tokenUsage     Int      @default(0) @map("token_usage")
+  status         String
+  durationMs     Int      @default(0) @map("duration_ms")
+  input          Json     @default("{}")
+  output         Json?
+  trace          Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([workflowId])
+  @@index([correlationId])
+  @@map("flight_records")
+}
+
+// ─── Organization Settings & Notifications ────────────────────────────────────
+
+model OrganizationSettings {
+  id                   String   @id @default(cuid())
+  organizationId       String   @unique @map("organization_id")
+  byokApiKey           String?  @map("byok_api_key")
+  allowedModels        Json     @default("[\"gpt-4o\",\"gpt-4o-mini\"]") @map("allowed_models")
+  tokenBudgetMonthly   Int      @default(1000000) @map("token_budget_monthly")
+  mfaRequired          Boolean  @default(false) @map("mfa_required")
+  onboardingCompleted  Boolean  @default(false) @map("onboarding_completed")
+  confidenceThreshold  Float    @default(0.8) @map("confidence_threshold")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_settings")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      String
+  title     String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
 }

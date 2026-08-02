@@ -101,6 +101,12 @@ async function main() {
     },
   });
 
+  await prisma.organizationSettings.upsert({
+    where: { organizationId: org.id },
+    update: {},
+    create: { organizationId: org.id, onboardingCompleted: true },
+  });
+
   console.log("Seed complete:");
   console.log(`  Organization: ${org.name} (${org.slug})`);
   console.log(`  Admin user:   admin@acme-health.com / demo1234`);

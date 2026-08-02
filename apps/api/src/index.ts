@@ -11,6 +11,14 @@ import { workflowRoutes } from "./routes/workflows.js";
 import { agentRoutes } from "./routes/agents.js";
 import { searchRoutes } from "./routes/search.js";
 import { healthRoutes } from "./routes/health.js";
+import { composerRoutes } from "./routes/composer.js";
+import { commentRoutes } from "./routes/comments.js";
+import { approvalRoutes } from "./routes/approvals.js";
+import { exportRoutes } from "./routes/exports.js";
+import { compareRoutes } from "./routes/compare.js";
+import { adminRoutes } from "./routes/admin.js";
+import { flightRoutes } from "./routes/flight-recorder.js";
+import { notificationRoutes, onboardingRoutes } from "./routes/notifications.js";
 import type { AppEnv } from "./types.js";
 
 const app = new Hono<AppEnv>();
@@ -42,6 +50,15 @@ v1.route("/knowledge", knowledgeRoutes);
 v1.route("/workflows", workflowRoutes);
 v1.route("/agents", agentRoutes);
 v1.route("/search", searchRoutes);
+v1.route("/composer", composerRoutes);
+v1.route("/comments", commentRoutes);
+v1.route("/approvals", approvalRoutes);
+v1.route("/exports", exportRoutes);
+v1.route("/compare", compareRoutes);
+v1.route("/admin", adminRoutes);
+v1.route("/flight-recorder", flightRoutes);
+v1.route("/notifications", notificationRoutes);
+v1.route("/onboarding", onboardingRoutes);
 
 app.route("/v1", v1);
 

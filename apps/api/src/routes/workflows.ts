@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { prisma, type Prisma } from "@policy-brain/database";
-import { orchestrator } from "@policy-brain/agents";
+import { orchestrator, extractDocumentText } from "@policy-brain/agents";
 import type { AppEnv } from "../types.js";
 import { ok, err, audit } from "../lib/response.js";
 import { requireAuth } from "../middleware/auth.js";
+import { recordFlight } from "../lib/flight-recorder.js";
 
 export const workflowRoutes = new Hono<AppEnv>();
 
@@ -131,17 +132,53 @@ async function runWorkflowAsync(
   }
 ) {
   try {
+    const enrichedInput = { ...ctx.input };
+
+    if (workflowType === "DOCUMENT_INGESTION" && ctx.input.sourceId) {
+      const source = await prisma.knowledgeSource.findUnique({
+        where: { id: ctx.input.sourceId as string },
+      });
+      if (source) {
+        const extracted = await extractDocumentText(source.storagePath, source.mimeType);
+        enrichedInput.storagePath = source.storagePath;
+        enrichedInput.mimeType = source.mimeType;
+        enrichedInput.extractedText = extracted.text;
+        await prisma.knowledgeSource.update({
+          where: { id: source.id },
+          data: { extractedText: extracted.text, status: "PROCESSING" },
+        });
+      }
+    }
+
+    if (workflowType === "RULE_GENERATION") {
+      const rules = await prisma.rule.findMany({
+        where: { policy: { organizationId: ctx.organizationId } },
+        select: { id: true, title: true, dslContent: true },
+      });
+      enrichedInput.existingRules = rules;
+    }
+
+    const runCtx = { ...ctx, input: enrichedInput };
+    const startTime = Date.now();
+
     const { results, stages } = await orchestrator.runWorkflow(
       workflowType,
-      ctx,
+      runCtx,
       {
         onStageComplete: async (stage, result) => {
           await prisma.workflowCheckpoint.create({
-            data: {
-              workflowId,
-              stage,
-              state: result.output as object,
-            },
+            data: { workflowId, stage, state: result.output as object },
+          });
+          await recordFlight({
+            organizationId: ctx.organizationId,
+            workflowId,
+            correlationId: ctx.correlationId,
+            stage,
+            agentType: result.trace.agentType,
+            status: "completed",
+            durationMs: result.trace.stages[0]?.durationMs ?? 0,
+            output: result.output as Prisma.InputJsonValue,
+            trace: result.trace as Prisma.InputJsonValue,
           });
         },
       }
@@ -154,7 +191,7 @@ async function runWorkflowAsync(
           workflowId,
           agentType: stages[i] ?? "unknown",
           status: "COMPLETED",
-          input: ctx.input as Prisma.InputJsonValue,
+          input: enrichedInput as Prisma.InputJsonValue,
           output: result.output as object,
           trace: result.trace as object,
           startedAt: new Date(),
@@ -170,23 +207,40 @@ async function runWorkflowAsync(
       data: { status: "COMPLETED", output: finalOutput as object },
     });
 
-    // If document ingestion, create knowledge objects from agent output
     if (workflowType === "DOCUMENT_INGESTION") {
       const knowledgeResult = results.find((r) =>
         Array.isArray((r.output as { objects?: unknown }).objects)
       );
       const sourceId = ctx.input.sourceId as string | undefined;
       if (sourceId && knowledgeResult) {
-        const objects = (knowledgeResult.output as { objects: Array<{ type: string; content: string; confidence: number }> }).objects;
-        for (const obj of objects) {
-          await prisma.knowledgeObject.create({
+        const output = knowledgeResult.output as {
+          objects: Array<{ type: string; content: string; confidence: number; tags?: string[] }>;
+          edges?: Array<{ fromIndex: number; toIndex?: number; relation: string }>;
+        };
+        const createdIds: string[] = [];
+        for (const obj of output.objects) {
+          const ko = await prisma.knowledgeObject.create({
             data: {
               sourceId,
               type: obj.type,
               content: obj.content,
               confidence: obj.confidence,
+              metadata: { tags: obj.tags ?? [] },
             },
           });
+          createdIds.push(ko.id);
+        }
+        for (const edge of output.edges ?? []) {
+          if (edge.toIndex !== undefined && createdIds[edge.fromIndex] && createdIds[edge.toIndex]) {
+            await prisma.knowledgeGraphEdge.create({
+              data: {
+                organizationId: ctx.organizationId,
+                fromObjectId: createdIds[edge.fromIndex],
+                toObjectId: createdIds[edge.toIndex],
+                relation: edge.relation,
+              },
+            });
+          }
         }
         await prisma.knowledgeSource.update({
           where: { id: sourceId },
@@ -194,10 +248,29 @@ async function runWorkflowAsync(
         });
       }
     }
+
+    await recordFlight({
+      organizationId: ctx.organizationId,
+      workflowId,
+      correlationId: ctx.correlationId,
+      stage: "complete",
+      status: "completed",
+      durationMs: Date.now() - startTime,
+      output: finalOutput as Prisma.InputJsonValue,
+    });
   } catch (error) {
     await prisma.workflow.update({
       where: { id: workflowId },
       data: { status: "FAILED", output: { error: String(error) } },
+    });
+    await recordFlight({
+      organizationId: ctx.organizationId,
+      workflowId,
+      correlationId: ctx.correlationId,
+      stage: "error",
+      status: "failed",
+      durationMs: 0,
+      output: { error: String(error) },
     });
   }
 }

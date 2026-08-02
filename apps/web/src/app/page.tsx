@@ -14,16 +14,16 @@ export default function HomePage() {
         </p>
         <div className="flex gap-4">
           <Link
-            href="/login"
+            href="/composer"
             className="rounded-lg bg-white px-6 py-3 font-semibold text-navy shadow-lg transition hover:bg-slate-100"
           >
-            Sign in
+            AI Policy Composer
           </Link>
           <Link
-            href="/dashboard"
+            href="/login"
             className="rounded-lg border border-white/30 px-6 py-3 font-semibold text-white transition hover:bg-white/10"
           >
-            Dashboard
+            Sign in
           </Link>
         </div>
         <div className="mt-16 grid w-full max-w-3xl grid-cols-3 gap-4 text-left text-sm">

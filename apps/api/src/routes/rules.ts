@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { prisma } from "@policy-brain/database";
+import { prisma, type Prisma } from "@policy-brain/database";
 import { validateRuleDsl } from "@policy-brain/shared";
 import type { AppEnv } from "../types.js";
 import { ok, err, audit } from "../lib/response.js";
@@ -126,4 +126,64 @@ ruleRoutes.post("/:id/validate", async (c) => {
     return ok(c, { valid: false, errors: validation.errors });
   }
   return ok(c, { valid: true, data: validation.data });
+});
+
+ruleRoutes.put("/:id", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.json();
+  const parsed = z
+    .object({
+      title: z.string().optional(),
+      description: z.string().optional(),
+      dslContent: z.record(z.unknown()).optional(),
+      changeNote: z.string().optional(),
+    })
+    .safeParse(body);
+  if (!parsed.success) return err(c, "VALIDATION_ERROR", parsed.error.message);
+
+  const existing = await prisma.rule.findFirst({
+    where: {
+      id: c.req.param("id"),
+      policy: { organizationId: user.organizationId },
+    },
+    include: { policy: true },
+  });
+  if (!existing) return err(c, "NOT_FOUND", "Rule not found", 404);
+
+  const hasAccess = await requireFolderAccess(c, existing.policy.folderId, "WRITE");
+  if (!hasAccess) return err(c, "FORBIDDEN", "No write access", 403);
+
+  let dslContent: Prisma.InputJsonValue = existing.dslContent as Prisma.InputJsonValue;
+  if (parsed.data.dslContent) {
+    const validation = validateRuleDsl(parsed.data.dslContent);
+    if (!validation.success) {
+      return err(c, "DSL_VALIDATION_ERROR", validation.errors?.join("; ") ?? "Invalid DSL");
+    }
+    dslContent = validation.data as Prisma.InputJsonValue;
+  }
+
+  const newVersion = existing.version + 1;
+  const rule = await prisma.rule.update({
+    where: { id: existing.id },
+    data: {
+      title: parsed.data.title ?? existing.title,
+      description: parsed.data.description ?? existing.description,
+      dslContent,
+      version: parsed.data.dslContent ? newVersion : existing.version,
+      ...(parsed.data.dslContent
+        ? {
+            versions: {
+              create: {
+                version: newVersion,
+                dslContent,
+                changeNote: parsed.data.changeNote ?? "Block editor update",
+              },
+            },
+          }
+        : {}),
+    },
+  });
+
+  await audit(user.organizationId, user.id, "rule.updated", "rule", rule.id, c.get("correlationId"));
+  return ok(c, rule);
 });
