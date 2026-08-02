@@ -59,15 +59,19 @@ Demo login: `admin@acme-health.com` / `demo1234`
 
 ### Architecture alignment (MVP)
 
-Built per SDD Decision 050 MVP scope:
+Implemented per SDD Decision 050:
 
-- Multi-agent orchestrator with checkpoint persistence
-- Knowledge Brain (sources + objects)
-- Policy/rule CRUD with internal DSL validation (SDD §23)
-- Folder-level RBAC + audit events
-- Async workflows with correlation IDs
-- API-first REST surface matching SDD §17 endpoint groups
+- **AI Composer** — upload → extract → clarify → generate → review → publish
+- **Live Policy Canvas** — visual block editor with NL/JSON views
+- **Knowledge Brain** — sources, objects, interactive knowledge graph
+- **Multi-agent orchestrator** — real extraction, generation, duplicate check, compare, export
+- **Collaboration** — typed comments, approval workflow, notifications
+- **Search** — hybrid keyword + semantic scoring
+- **Compare** — git-style rule diff with conflict detection
+- **Export** — JSON, YAML, Python compilation from canonical DSL
+- **Flight Recorder** — per-stage workflow traces (SDD §27)
+- **Administration** — users, folders, org AI settings
 
-Not yet implemented: OAuth/SSO, vector/graph DB, real AI inference, Flight Recorder UI, full block editor.
+Still stubbed / partial: OAuth/SSO, MFA, vector DB, graph DB sync, real LLM inference (uses heuristics unless BYOK key set).
 
 See `DEVELOPMENT.md` for full setup instructions.
