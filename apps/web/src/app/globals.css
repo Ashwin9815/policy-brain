@@ -1,0 +1,15 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+:root {
+  --pb-navy: #0f2744;
+  --pb-blue: #1e5a8a;
+  --pb-accent: #2b8fd9;
+  --pb-surface: #f8fafc;
+  --pb-border: #e2e8f0;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
