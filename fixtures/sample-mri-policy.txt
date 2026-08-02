@@ -1,0 +1,21 @@
+MRI Prior Authorization Policy
+
+Procedure Codes: CPT 70551, 70552, 70553 (MRI brain without and with contrast).
+
+Prior authorization is required for all outpatient MRI procedures unless emergency criteria are met.
+
+Medical Necessity Requirements:
+- Patient must have completed at least 6 weeks of conservative treatment including physical therapy or medication management.
+- Clinical indication must be documented in the medical record.
+- Referring physician specialty must be appropriate for the requested imaging.
+
+Exclusions:
+- MRI is not covered for screening purposes without documented high-risk factors.
+- Experimental or investigational uses are excluded.
+
+Emergency Exception:
+- Emergency cases with documented acute neurological deficit may bypass conservative treatment requirements.
+
+Approval Criteria:
+- When all medical necessity requirements are met, the prior authorization request should be APPROVED.
+- Deny when conservative treatment documentation is incomplete or procedure is not medically necessary.
