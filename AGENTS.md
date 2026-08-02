@@ -26,29 +26,15 @@ There are no long-running application services. Development work is limited to r
 
 ### Previewing documentation
 
-To browse the SDD in a browser during a cloud session:
-
-1. Generate a temporary HTML preview (does not modify the repo):
-
-```bash
-python3 -c "
-from pathlib import Path
-import re
-docs, out = Path('docs'), Path('/tmp/policy-brain-docs')
-out.mkdir(exist_ok=True)
-for f in sorted(docs.glob('[0-9]*.md')):
-    md = f.read_text()
-  # ... (use full generator from setup or serve raw markdown)
-"
-```
-
-Or serve the raw markdown directory directly:
+To browse the SDD in a browser during a cloud session, serve the raw markdown directory:
 
 ```bash
 cd /workspace && python3 -m http.server 8080
 ```
 
-2. Open `http://localhost:8080/docs/README.md` or the generated index at `http://localhost:8080/index.html`.
+Then open `http://localhost:8080/docs/README.md`.
+
+For a richer HTML preview, generate pages under `/tmp/policy-brain-docs` (see setup validation script) and serve from that directory instead.
 
 ### Gotchas
 
