@@ -1,0 +1,377 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identity ───────────────────────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users            User[]
+  folders          Folder[]
+  policies         Policy[]
+  knowledgeSources KnowledgeSource[]
+  workflows        Workflow[]
+  auditEvents      AuditEvent[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String?  @map("password_hash")
+  name           String
+  role           UserRole @default(MEMBER)
+  organizationId String   @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  folderPermissions  FolderPermission[]
+  policiesCreated    Policy[]           @relation("PolicyCreator")
+  rulesCreated       Rule[]             @relation("RuleCreator")
+  comments           Comment[]
+  approvals          Approval[]
+  auditEvents        AuditEvent[]
+  sessions           Session[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+  REVIEWER
+  VIEWER
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ─── Folders & RBAC ─────────────────────────────────────────────────────────
+
+model Folder {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  parentId       String?  @map("parent_id")
+  organizationId String   @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent       Folder?            @relation("FolderHierarchy", fields: [parentId], references: [id])
+  children     Folder[]           @relation("FolderHierarchy")
+  permissions  FolderPermission[]
+  policies     Policy[]
+  sources      KnowledgeSource[]
+
+  @@index([organizationId])
+  @@index([parentId])
+  @@map("folders")
+}
+
+model FolderPermission {
+  id         String           @id @default(cuid())
+  folderId   String           @map("folder_id")
+  userId     String           @map("user_id")
+  permission FolderPermissionLevel
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  folder Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([folderId, userId])
+  @@map("folder_permissions")
+}
+
+enum FolderPermissionLevel {
+  READ
+  WRITE
+  ADMIN
+}
+
+// ─── Policy & Rules ─────────────────────────────────────────────────────────
+
+model Policy {
+  id             String       @id @default(cuid())
+  title          String
+  description    String?
+  status         PolicyStatus @default(DRAFT)
+  folderId       String       @map("folder_id")
+  organizationId String       @map("organization_id")
+  createdById    String       @map("created_by_id")
+  version        Int          @default(1)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  folder       Folder       @relation(fields: [folderId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("PolicyCreator", fields: [createdById], references: [id])
+  rules        Rule[]
+  approvals    Approval[]
+  comments     Comment[]
+
+  @@index([organizationId])
+  @@index([folderId])
+  @@index([status])
+  @@map("policies")
+}
+
+enum PolicyStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+model Rule {
+  id          String     @id @default(cuid())
+  policyId    String     @map("policy_id")
+  title       String
+  description String?
+  dslContent  Json       @map("dsl_content")
+  status      RuleStatus @default(DRAFT)
+  createdById String     @map("created_by_id")
+  version     Int        @default(1)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  policy    Policy        @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  createdBy User          @relation("RuleCreator", fields: [createdById], references: [id])
+  versions  RuleVersion[]
+  comments  Comment[]
+
+  @@index([policyId])
+  @@index([status])
+  @@map("rules")
+}
+
+enum RuleStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+}
+
+model RuleVersion {
+  id         String   @id @default(cuid())
+  ruleId     String   @map("rule_id")
+  version    Int
+  dslContent Json     @map("dsl_content")
+  changeNote String?  @map("change_note")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  rule Rule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, version])
+  @@map("rule_versions")
+}
+
+// ─── Knowledge Brain ──────────────────────────────────────────────────────────
+
+model KnowledgeSource {
+  id             String              @id @default(cuid())
+  title          String
+  fileName       String              @map("file_name")
+  mimeType       String              @map("mime_type")
+  fileSize       Int                 @map("file_size")
+  storagePath    String              @map("storage_path")
+  status         KnowledgeSourceStatus @default(PENDING)
+  folderId       String              @map("folder_id")
+  organizationId String              @map("organization_id")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  folder       Folder            @relation(fields: [folderId], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  objects      KnowledgeObject[]
+
+  @@index([organizationId])
+  @@index([folderId])
+  @@map("knowledge_sources")
+}
+
+enum KnowledgeSourceStatus {
+  PENDING
+  PROCESSING
+  EXTRACTED
+  FAILED
+}
+
+model KnowledgeObject {
+  id         String   @id @default(cuid())
+  sourceId   String   @map("source_id")
+  type       String
+  content    String
+  metadata   Json     @default("{}")
+  confidence Float    @default(0.0)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  source KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@map("knowledge_objects")
+}
+
+// ─── Workflows & Agents ─────────────────────────────────────────────────────
+
+model Workflow {
+  id             String         @id @default(cuid())
+  type           WorkflowType
+  status         WorkflowStatus @default(PENDING)
+  input          Json           @default("{}")
+  output         Json?
+  organizationId String         @map("organization_id")
+  correlationId  String         @map("correlation_id")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  checkpoints  WorkflowCheckpoint[]
+  executions   AgentExecution[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([correlationId])
+  @@map("workflows")
+}
+
+enum WorkflowType {
+  DOCUMENT_INGESTION
+  RULE_GENERATION
+  DUPLICATE_CHECK
+  RULE_COMPARISON
+  IMPACT_ANALYSIS
+  EXPORT
+}
+
+enum WorkflowStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+}
+
+model WorkflowCheckpoint {
+  id         String   @id @default(cuid())
+  workflowId String   @map("workflow_id")
+  stage      String
+  state      Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@map("workflow_checkpoints")
+}
+
+model AgentExecution {
+  id         String              @id @default(cuid())
+  workflowId String              @map("workflow_id")
+  agentType  String              @map("agent_type")
+  status     AgentExecutionStatus @default(PENDING)
+  input      Json                @default("{}")
+  output     Json?
+  trace      Json?
+  startedAt  DateTime?           @map("started_at")
+  completedAt DateTime?          @map("completed_at")
+  createdAt  DateTime            @default(now()) @map("created_at")
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@map("agent_executions")
+}
+
+enum AgentExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// ─── Collaboration & Governance ───────────────────────────────────────────────
+
+model Approval {
+  id         String         @id @default(cuid())
+  policyId   String         @map("policy_id")
+  approverId String         @map("approver_id")
+  status     ApprovalStatus @default(PENDING)
+  note       String?
+  createdAt  DateTime       @default(now()) @map("created_at")
+  decidedAt  DateTime?      @map("decided_at")
+
+  policy   Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  approver User   @relation(fields: [approverId], references: [id])
+
+  @@index([policyId])
+  @@map("approvals")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  authorId  String   @map("author_id")
+  policyId  String?  @map("policy_id")
+  ruleId    String?  @map("rule_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  author User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  policy Policy? @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  rule   Rule?   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@index([ruleId])
+  @@map("comments")
+}
+
+model AuditEvent {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  userId         String?  @map("user_id")
+  action         String
+  resourceType   String   @map("resource_type")
+  resourceId     String   @map("resource_id")
+  metadata       Json     @default("{}")
+  correlationId  String?  @map("correlation_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([resourceType, resourceId])
+  @@index([correlationId])
+  @@map("audit_events")
+}
