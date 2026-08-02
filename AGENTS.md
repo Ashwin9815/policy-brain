@@ -55,6 +55,7 @@ Demo login: `admin@acme-health.com` / `demo1234`
 - **PostgreSQL:** If `pg_isready` fails, run `sudo pg_ctlcluster 16 main start`.
 - **API env:** The API loads `DATABASE_URL` from the shell environment; `source .env` before starting if not using `pnpm dev` with dotenv.
 - **Uploads:** Document uploads land in `apps/api/uploads/` at runtime.
+- **Stale Next.js cache:** If the web app returns 500 with `Cannot find module './NNN.js'` in webpack chunks, stop the dev server, delete `apps/web/.next` and `apps/web/.turbo`, then restart (`pnpm --filter @policy-brain/web dev`). This happens when hot reload leaves orphaned chunk references after large refactors.
 - **Agents are stubs:** Multi-agent workflows run in-process with placeholder outputs until real AI providers are wired (SDD §10, §21).
 
 ### Architecture alignment (MVP)

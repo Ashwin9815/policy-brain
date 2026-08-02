@@ -106,39 +106,51 @@ export default function PolicyDetailPage() {
 
         <div className="mt-6">
           {tab === "Canvas" && (
-            <div className="grid grid-cols-4 gap-6">
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold text-slate-600">Rules</h3>
-                {policy.rules?.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => { setSelectedRule(r); setEditingDsl(r.dslContent as RuleDsl); }}
-                    className={`block w-full rounded-lg border p-3 text-left text-sm ${
-                      selectedRule?.id === r.id ? "border-accent bg-blue-50" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    {r.title}
-                  </button>
-                ))}
-              </div>
-              <div className="col-span-3">
-                {selectedRule && editingDsl ? (
-                  <div>
-                    <div className="mb-4 flex items-center justify-between">
-                      <h2 className="font-semibold text-navy">Live Policy Canvas — {selectedRule.title}</h2>
-                      <ExportDialog ruleId={selectedRule.id} ruleTitle={selectedRule.title} />
-                    </div>
-                    <BlockEditor
-                      dsl={editingDsl}
-                      onChange={setEditingDsl}
-                      onSave={handleSaveRule}
-                      saving={saving}
-                    />
-                  </div>
-                ) : (
-                  <p className="text-slate-400">Select a rule to edit</p>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-navy">Live Policy Canvas</h2>
+                  <p className="text-sm text-slate-500">
+                    Drag blocks from the palette, reorder on the canvas, and edit in the inspector
+                  </p>
+                </div>
+                {selectedRule && (
+                  <ExportDialog ruleId={selectedRule.id} ruleTitle={selectedRule.title} />
                 )}
               </div>
+
+              {policy.rules && policy.rules.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {policy.rules.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedRule(r);
+                        setEditingDsl(r.dslContent as RuleDsl);
+                      }}
+                      className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                        selectedRule?.id === r.id
+                          ? "border-accent bg-blue-50 text-accent"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      {r.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedRule && editingDsl ? (
+                <BlockEditor
+                  dsl={editingDsl}
+                  onChange={setEditingDsl}
+                  onSave={handleSaveRule}
+                  saving={saving}
+                />
+              ) : (
+                <p className="text-slate-400">Select a rule to edit</p>
+              )}
             </div>
           )}
 

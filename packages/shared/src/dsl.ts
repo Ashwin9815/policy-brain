@@ -64,16 +64,49 @@ function detectCircularLogic(dsl: RuleDsl): string | null {
 
 export function dslToNaturalLanguage(dsl: RuleDsl): string {
   const lines: string[] = [`Rule: ${dsl.metadata.name} (v${dsl.metadata.version})`];
+  if (dsl.metadata.description) {
+    lines.push(dsl.metadata.description);
+  }
+  lines.push("");
+
   for (const block of dsl.blocks) {
-    if (block.type === "condition" && block.conditions) {
-      const parts = block.conditions.map(
-        (c) => `${c.field} ${c.operator} ${JSON.stringify(c.value)}`
-      );
-      lines.push(`When ${parts.join(` ${block.logic ?? "AND"} `)}`);
-    }
-    if (block.type === "decision" && block.outcome) {
-      lines.push(`Then ${block.outcome}`);
+    switch (block.type) {
+      case "metadata":
+        lines.push("Metadata defined.");
+        break;
+      case "eligibility":
+        if (block.conditions?.length) {
+          const parts = block.conditions.map(formatCondition);
+          lines.push(`Eligible when ${parts.join(` ${block.logic ?? "AND"} `)}`);
+        }
+        break;
+      case "condition":
+        if (block.conditions?.length) {
+          const parts = block.conditions.map(formatCondition);
+          lines.push(`When ${parts.join(` ${block.logic ?? "AND"} `)}`);
+        }
+        break;
+      case "exception":
+        if (block.conditions?.length) {
+          const parts = block.conditions.map(formatCondition);
+          lines.push(`Except when ${parts.join(` ${block.logic ?? "OR"} `)}`);
+        }
+        break;
+      case "decision":
+        lines.push(`Then ${block.outcome ?? "UNDEFINED"}`);
+        break;
+      case "evidence":
+        if (block.evidence?.length) {
+          lines.push(`Evidence: ${block.evidence.join(", ")}`);
+        }
+        break;
     }
   }
   return lines.join("\n");
+}
+
+function formatCondition(c: { field: string; operator: string; value?: unknown }): string {
+  if (c.operator === "exists") return `${c.field} is documented`;
+  if (c.operator === "in") return `${c.field} is one of ${JSON.stringify(c.value)}`;
+  return `${c.field} ${c.operator} ${JSON.stringify(c.value)}`;
 }
